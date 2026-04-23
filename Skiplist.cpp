@@ -17,22 +17,6 @@ private:
 
 		Node(key_type key, val_type val) : key(std::move(key)), val(std::move(val)), next(nullptr), prev(nullptr), up(nullptr), down(nullptr), header(false), sentinel(false) {}
 		Node(bool header, bool sentinel) : header(header), sentinel(sentinel), next(nullptr), prev(nullptr), up(nullptr), down(nullptr) {}
-
-		/*bool operator==(const Node& other) const {
-			return key == other.key;
-		}
-		bool operator<(const Node& other) const {
-			if (header) {return true;}
-			if (sentinel) {return false;}
-
-			return key < other.key;
-		}
-		bool operator<(const Node* other) const {
-			if (header) {return true;}
-			if (sentinel) {return false;}
-
-			return key < other->key;
-		}*/
 	};
 
 	std::vector<Node*> headers;
@@ -52,7 +36,7 @@ private:
 	}
 
 	Node* lower_bound(key_type key) {
-		Node* curr = &headers.back();
+		Node* curr = headers.back();
 		Node* prev;
 		while (curr) {
 			prev = curr;
@@ -87,6 +71,55 @@ private:
 
 public:
 
+	class iterator {
+		Node* ptr;
+
+		iterator(Node* ptr) : ptr(ptr) {}
+
+		Node* operator*() {
+			return ptr;
+		}
+
+        Node* operator->() {
+            return ptr;
+        }
+
+		iterator operator++() {
+			if (ptr->sentinel || ptr->next->sentinel) {throw std::domain_error("Accessing out of bounds memory.");}
+			return iterator(ptr->next);
+		}
+
+		iterator operator--() {
+			if (ptr->header || ptr->prev->header) {throw std::domain_error("Accessing out of bounds memory.");}
+			return iterator(ptr->prev);
+		}
+
+		bool operator==(const iterator& other) const{
+			return ptr == other.ptr;
+		}
+
+		bool operator!=(const iterator& other) const {
+            return !(*this == other);
+        }
+
+	};
+
+	iterator begin() {
+		return iterator(headers.front()->next);
+	}
+
+	iterator end() {
+		return iterator(sentinel);
+	}
+
+	/*val_type& operator[](key_type key) {
+		Node* curr = lower_bound(key);
+		if (equals(key, curr)) {
+			return curr->val;
+		}
+		insert(key, )
+	}*/
+
 	SkipList() {
 		sentinel = new Node(false, true);
 
@@ -95,12 +128,12 @@ public:
 		headers.push_back(header);
 	}
 
-	val_type search(key_type key) {
+	iterator search(key_type key) {
 		Node* req = lower_bound(key);
 		if (equals(key, req)) {
-			return req->val;
+			return iterator(req);
 		}
-		return {};
+		return end();
 	}
 
 	bool remove(key_type key) {
@@ -130,6 +163,8 @@ public:
 
 			to_add->prev = predecessor;
 			if (!to_add->next->sentinel) {to_add->next->prev = to_add;}
+
+			if (to_add->next == sentinel) {sentinel->prev = to_add;}
 
 			Node* prev_level_node = to_add;
 			while (flippedHead()) {
