@@ -6,78 +6,75 @@ private:
 		key_type key;
 		val_type val;
 
-		Node* next;
-		Node* prev;
+		std::vector<Node*> next;
 
-		Node* up;
-		Node* down;
-
-		bool header;
-		bool sentinel;
-
-		Node(key_type key, val_type val) : key(std::move(key)), val(std::move(val)), next(nullptr), prev(nullptr), up(nullptr), down(nullptr), header(false), sentinel(false) {}
-		Node(bool header, bool sentinel) : header(header), sentinel(sentinel), next(nullptr), prev(nullptr), up(nullptr), down(nullptr) {}
+		Node(key_type key, val_type val, size_t levels) : key(std::move(key)), val(std::move(val)), next(levels + 1, nullptr) {
+		}
 	};
 
-	std::vector<Node*> headers;
-	Node* sentinel;
+	const size_t MAX_LVL = 20;
+	const double PROBABILITY = 0.5;
+	std::mt19937 gen;
+	std::geometric_distribution<int> dist;
+
+	Node* header;
 
 	Node* getHeader() {
-		return headers.back();
-	}
-
-	void addHeader() {
-		Node* new_header = new Node(true, false);
-		new_header->next = sentinel;
-		new_header->down = headers.back();
-
-		headers.back()->up = new_header;
-		headers.push_back(new_header);
+		return header;
 	}
 
 	Node* lower_bound(key_type key) {
-		Node* curr = headers.back();
-		Node* prev;
-		while (curr) {
-			prev = curr;
-			if (equals(key, curr)) {
-				while (curr->down) {curr = curr->down;}
-				return curr;
+		Node* curr = header;
+		int curr_level = MAX_LVL;
+
+		while (curr_level >= 0) {
+			if (curr->next[curr_level] && curr->next[curr_level]->key <= key) {
+				curr = curr->next[curr_level];
 			}
-			else if (lt(key, curr->next)) {
-				curr = curr->down;
+			else {
+				--curr_level;
 			}
-			else {curr = curr->next;}
 		}
 
-		return prev;
+		return curr;
+	}
+ 
+	std::vector<Node*> getPredecessors(key_type key) {
+		Node* curr = header;
+		int curr_level = MAX_LVL;
+
+		std::vector<Node*> res(MAX_LVL + 1);
+
+		while (curr_level >= 0) {
+			if (curr->next[curr_level] && curr->next[curr_level]->key < key) {
+				curr = curr->next[curr_level];
+			}
+			else {
+				res[curr_level] = curr;
+				--curr_level;
+			}
+		}
+
+		return res;
 	}
 
-	bool equals(key_type key, const Node* other) const {
-		if (other->header || other->sentinel) {return false;}
-		return key == other->key;
-	}
 
-	bool lt(key_type key, const Node* other) const {
-		if (other->header) {return false;}
-		if (other->sentinel) {return true;}
-
-		return key < other->key;
-	}
-
-	bool flippedHead() {
-		return false;
+	size_t calcNodeLevel() {
+		int res = dist(gen);
+		if (res < MAX_LVL) {return res;}
+		return MAX_LVL;
 	}
 
 public:
 
 	class iterator {
+	public:
 		Node* ptr;
 
 		iterator(Node* ptr) : ptr(ptr) {}
 
-		Node* operator*() {
-			return ptr;
+		val_type& operator*() {
+			return ptr->val;
 		}
 
         Node* operator->() {
@@ -85,14 +82,14 @@ public:
         }
 
 		iterator operator++() {
-			if (ptr->sentinel || ptr->next->sentinel) {throw std::domain_error("Accessing out of bounds memory.");}
-			return iterator(ptr->next);
+			if (!ptr) {throw std::domain_error("Accessing out of bounds memory.");}
+			return iterator(ptr->next[0]);
 		}
 
-		iterator operator--() {
+		/*iterator operator--() {
 			if (ptr->header || ptr->prev->header) {throw std::domain_error("Accessing out of bounds memory.");}
 			return iterator(ptr->prev);
-		}
+		}*/
 
 		bool operator==(const iterator& other) const{
 			return ptr == other.ptr;
@@ -105,11 +102,11 @@ public:
 	};
 
 	iterator begin() {
-		return iterator(headers.front()->next);
+		return iterator(header->next[0]);
 	}
 
 	iterator end() {
-		return iterator(sentinel);
+		return iterator(nullptr);
 	}
 
 	/*val_type& operator[](key_type key) {
@@ -120,77 +117,52 @@ public:
 		insert(key, )
 	}*/
 
-	SkipList() {
-		sentinel = new Node(false, true);
-
-		Node* header = new Node(true, false);
-		header->next = sentinel;
-		headers.push_back(header);
+	SkipList() : gen(std::random_device{}()), dist(PROBABILITY) {
+		header = new Node({}, {}, MAX_LVL);
 	}
 
 	iterator search(key_type key) {
 		Node* req = lower_bound(key);
-		if (equals(key, req)) {
+		if (req != header && key == req->key) {
 			return iterator(req);
 		}
+
 		return end();
 	}
 
 	bool remove(key_type key) {
-		Node* curr = lower_bound(key);
-		if (equals(key, curr)) {
-			while (curr) {
-				Node* up = curr->up;
-				curr->prev->next = curr->next;
-				curr->next->prev = curr->prev;
-				delete curr;
-				curr = up;
-			}
-			return true;
+		auto predecessors = getPredecessors(key);
+		Node* curr = predecessors[0]->next[0];
+
+		if (!curr || curr->key != key) {
+			return false;
 		}
-		return false;
+
+		int levels = curr->next.size() - 1;
+
+		for (int i=levels; i>=0; --i) {
+			predecessors[i]->next[i] = curr->next[i];
+		}
+
+		delete curr;
+
+		return true;
 	}
 
 	void insert(key_type key, val_type val) {
-		Node* predecessor = lower_bound(key);
-		if (equals(key, predecessor)) {
-			predecessor->val = std::move(val);
+		auto predecessors = getPredecessors(key);
+		Node* next = predecessors[0]->next[0];
+
+		if (next && key == next->key) {
+			next->val = std::move(val);
 		}
 		else {
-			Node* to_add = new Node(key, val);
-			to_add->next = predecessor->next;
-			predecessor->next = to_add;
+			size_t max_level = calcNodeLevel();
+			Node* to_add = new Node(key, val, max_level);
 
-			to_add->prev = predecessor;
-			if (!to_add->next->sentinel) {to_add->next->prev = to_add;}
-
-			if (to_add->next == sentinel) {sentinel->prev = to_add;}
-
-			Node* prev_level_node = to_add;
-			while (flippedHead()) {
-				while(!predecessor->up && !predecessor->header) {
-					predecessor = predecessor->prev;
-				}
-				if (predecessor->header && !predecessor->up) {
-					addHeader();
-					predecessor = getHeader();
-				}
-				else {
-					predecessor = predecessor->up;
-				}
-
-				Node* next_level_node = new Node(key, val);
-				next_level_node->next = predecessor->next;
-				predecessor->next     = next_level_node;
-
-				next_level_node->prev = predecessor;
-				if (!next_level_node->next->sentinel) {next_level_node->next->prev = next_level_node;}
-
-				prev_level_node->up   = next_level_node;
-				next_level_node->down = prev_level_node;
-				prev_level_node       = next_level_node;
-
-				predecessor = next_level_node->prev;
+			for (size_t i=0; i<=max_level; ++i) {
+				to_add->next[i] = predecessors[i]->next[i];
+				predecessors[i]->next[i] = to_add;
 			}
 		}
 	}
